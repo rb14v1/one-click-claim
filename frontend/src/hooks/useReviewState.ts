@@ -143,17 +143,18 @@ export const useReviewState = () => {
 
     // --- ACTIONS ---
     // --- DYNAMIC EXCHANGE RATE MATH ---
-    const targetCurrency = 'INR'; // The currency you want to reimburse in
+    const targetCurrency = 'EUR'; // DEFAULT SET TO EUR
     const dynamicCurrencies = Object.keys(exchangeRates).length > 0 ? Object.keys(exchangeRates) : ['EUR', 'USD', 'GBP', 'INR'];
     
     const selectedCurrency = currentReceipt?.data?.currency || 'EUR';
     
     const selectedFactor = exchangeRates[selectedCurrency] || 1;
-    const targetFactor = exchangeRates[targetCurrency] || 106.51; 
+    const targetFactor = exchangeRates[targetCurrency] || 1; // FALLBACK FACTOR IS NOW 1
     const calcExchangeRate = selectedFactor ? (targetFactor / selectedFactor) : 1;
     
     const incurredAmount = parseFloat(currentReceipt?.data?.total_amount) || 0;
     const reimbAmount = (incurredAmount * calcExchangeRate).toFixed(2);
+    
     const handleInputChange = (field: string, value: any) => {
         setReceipts(prev => prev.map(r => r.id === selectedId ? { ...r, data: { ...r.data, [field]: value } } : r));
     };
@@ -161,7 +162,6 @@ export const useReviewState = () => {
     const toggleActivityGroup = (activityName: string) => {
         setOpenActivities(prev => ({ ...prev, [activityName]: !prev[activityName] }));
     };
-
 
     const handleValidateAndNext = () => {
         const rData = currentReceipt.data;
@@ -221,7 +221,6 @@ export const useReviewState = () => {
                 if (!groupsMap[act]) groupsMap[act] = [];
 
                 const cleanFloat = (val: any) => (val === '' || val == null) ? null : (isNaN(parseFloat(val)) ? 0 : parseFloat(val));
-                // Send empty strings instead of nulls to prevent Salesforce JSON parse crashes
                 const cleanString = (val: any) => val ? String(val) : "";
 
                 groupsMap[act].push({

@@ -15,7 +15,8 @@ from .kantata_sync import sync_group_to_kantata, check_single_import_status, get
 from authentication.kantata_auth import get_kantata_headers
 from django.core.paginator import Paginator
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
+
  
 api = NinjaAPI()
  
@@ -46,6 +47,11 @@ def process_receipts(request, files: List[UploadedFile] = File(...)):
     exchange_rates = get_active_exchange_rates()
     # Fallback to schema currencies if Kantata fails
     dynamic_currencies = list(exchange_rates.keys()) if exchange_rates else None
+    
+    # SETUP DATES FOR VALIDATION
+    today = timezone.now().date()
+    one_year_ago = today - timedelta(days=365)
+    
     # 1. Process files and Split results
     for file in files:
         # Split from the right side to perfectly separate the extension from the name
@@ -68,7 +74,26 @@ def process_receipts(request, files: List[UploadedFile] = File(...)):
                 "reason": pipeline_results[0]['error']
             })
         else:
-            valid_results.extend(pipeline_results)
+            # DATE VALIDATION GATEKEEPER
+            for receipt in pipeline_results:
+                receipt_date_str = receipt.get('date')
+                is_valid_date = True
+                
+                if receipt_date_str:
+                    try:
+                        receipt_date = datetime.strptime(receipt_date_str, "%Y-%m-%d").date()
+                        if receipt_date < one_year_ago or receipt_date > today:
+                            is_valid_date = False
+                            rejected_files.append({
+                                "filename": file.name,
+                                "reason": f"Invalid Date ({receipt_date_str}): Must be within the last 1 year and not in the future."
+                            })
+                    except ValueError:
+                        # If AI messes up the format, it passes through to manual review
+                        pass 
+                
+                if is_valid_date:
+                    valid_results.append(receipt)
 
     # 2. Sort and Group
     valid_results.sort(key=lambda x: (x.get('activity') or 'Unassigned'))

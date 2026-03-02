@@ -1,5 +1,6 @@
 export const BRAND_COLORS = {
   teal: "#57a080",
+  primary_teal:"#21b0be",
   blue: "#93c5fd",
   orange: "#efa638",
   green: "#33b665",
@@ -9,6 +10,7 @@ export const BRAND_COLORS = {
 
 export const CHART_COLOR_ARRAY = [
   BRAND_COLORS.teal,
+  BRAND_COLORS.primary_teal,
   BRAND_COLORS.blue,
   BRAND_COLORS.orange,
   BRAND_COLORS.green,

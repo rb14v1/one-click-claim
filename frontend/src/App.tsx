@@ -10,13 +10,13 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/uploadpage" element={<UploadPage />} />
+        <Route path="/upload" element={<UploadPage />} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/success" element={<SuccessPage />} />
         <Route path="/dashboard" element={<AdminDashboard />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
 
-        <Route path="*" element={<Navigate to="/uploadpage" replace />} />
+        <Route path="*" element={<Navigate to="/upload" replace />} />
       </Routes>
     </Router>
   );

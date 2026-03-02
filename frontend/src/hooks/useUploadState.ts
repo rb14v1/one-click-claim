@@ -17,6 +17,7 @@ export const useUploadState = () => {
     const [currentFileIndex, setCurrentFileIndex] = useState(0);
 
     const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    const MAX_FILE_SIZE = 120 * 1024; // 120KB limit
 
     const filterDuplicates = (newFiles: File[]) => {
         return newFiles.filter(newFile => {
@@ -58,19 +59,36 @@ export const useUploadState = () => {
         e.preventDefault();
         setIsDragging(false);
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const droppedFiles = Array.from(e.dataTransfer.files).filter(isValidFile);
-            if (droppedFiles.length === 0) {
+            const droppedFiles = Array.from(e.dataTransfer.files);
+            const formatValidFiles = droppedFiles.filter(isValidFile);
+            
+            if (formatValidFiles.length === 0) {
                 toast.error('Only PDF, JPG, and PNG files are supported.');
                 return;
             }
-            addFiles(filterDuplicates(droppedFiles));
+
+            // Size validation logic
+            const sizeValidFiles = formatValidFiles.filter(f => f.size <= MAX_FILE_SIZE);
+            if (sizeValidFiles.length < formatValidFiles.length) {
+                toast.error('Please upload files less than 120kb');
+            }
+
+            addFiles(filterDuplicates(sizeValidFiles));
         }
     };
 
     const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
-            const selectedFiles = Array.from(e.target.files).filter(isValidFile);
-            addFiles(filterDuplicates(selectedFiles));
+            const selectedFiles = Array.from(e.target.files);
+            const formatValidFiles = selectedFiles.filter(isValidFile);
+            
+            // Size validation logic
+            const sizeValidFiles = formatValidFiles.filter(f => f.size <= MAX_FILE_SIZE);
+            if (sizeValidFiles.length < formatValidFiles.length) {
+                toast.error('Please upload files less than 120kb');
+            }
+
+            addFiles(filterDuplicates(sizeValidFiles));
             e.target.value = '';
         }
     };
@@ -128,11 +146,17 @@ export const useUploadState = () => {
                         return newStatus;
                     });
                 } catch (error) {
+                    // SILENT FAILURE CATCH - Pushes network/API crashes straight to the UI
                     console.error(`Error processing file ${i}:`, error);
                     setFileStatuses(prev => {
                         const newStatus = [...prev];
                         newStatus[i] = 'error';
                         return newStatus;
+                    });
+                    
+                    allRejected.push({
+                        filename: files[i].name,
+                        reason: "Network or server failure during processing. Please retry."
                     });
                 }
             }
