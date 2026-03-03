@@ -180,23 +180,41 @@ def analyze_with_llm(ocr_text: str, valid_currencies: list = CURRENCIES, valid_a
 def compress_to_target_size(file_bytes: bytes, filename: str, target_kb: int = 120) -> tuple[bytes, str]:
     """
     Dynamically squishes images or PDFs down to the target KB limit.
-    PDFs are rasterized into JPEGs.
+    PDFs (all pages) are rasterized into a single vertically stitched JPEG.
     Returns: (compressed_bytes, updated_filename)
     """
     target_bytes = target_kb * 1024
     
     # 1. Handle PDFs (Rasterize to Image)
     if filename.lower().endswith(".pdf"):
-        print(f"   [Squish] PDF detected. Converting to image...")
+        print(f"   [Squish] PDF detected. Converting to image(s)...")
         doc = fitz.open(stream=file_bytes, filetype="pdf")
-        page = doc.load_page(0)  # We only need the first page for a receipt
-        # Render at 2x resolution initially so OCR doesn't fail on tiny text
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) 
-        img_bytes = pix.tobytes("png")
-        doc.close()
         
-        # Load the rendered PDF page into Pillow
-        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        images = []
+        # Loop through all pages (capped at 5 to prevent crazy memory usage on massive docs)
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            # Render at 2x resolution initially so OCR doesn't fail on tiny text
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) 
+            img_bytes = pix.tobytes("png")
+            images.append(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+        doc.close()
+
+        # Stitch images vertically if multiple pages exist
+        if len(images) > 1:
+            total_width = max(im.width for im in images)
+            total_height = sum(im.height for im in images)
+            stitched_img = Image.new("RGB", (total_width, total_height))
+            
+            y_offset = 0
+            for im in images:
+                stitched_img.paste(im, (0, y_offset))
+                y_offset += im.height
+            
+            img = stitched_img
+        else:
+            img = images[0]
+            
         # Change extension to .jpg since PDFs are gone now
         filename = filename.rsplit('.', 1)[0] + ".jpg"
         
