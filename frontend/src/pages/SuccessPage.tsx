@@ -55,7 +55,7 @@ const SuccessPage = () => {
           const data = await checkSyncStatus(batch.interface_run_id);
           const currentStatus = data.status || 'Pending';
           const lowerStatus = currentStatus.toLowerCase();
-          const terminalStates = ['completed', 'error', 'failed', 'partially completed', 'errored', 'success'];
+          const terminalStates = ['completed', 'error', 'failed', 'partially completed', 'errored','ready', 'success'];
  
           if (terminalStates.includes(lowerStatus)) {
             setBatches(prev => {
@@ -159,7 +159,7 @@ const SuccessPage = () => {
                   batches.map((batch: any, index: number) => {
                     // Show "Pending Validation" in step 4, actual status in step 5
                     const displayStatus = step === 4 ? 'Pending Validation' : (batch.import_status || batch.status || 'Pending');
-                    const isSuccess = displayStatus === 'Completed' || (displayStatus === 'success' && displayStatus !== 'Polling...');
+                    const isSuccess = displayStatus === 'ready' || displayStatus === 'Completed' || (displayStatus === 'success' && displayStatus !== 'Polling...');
                     const isPolling = displayStatus === 'Polling...';
  
                     // Dynamic Badge Styling
