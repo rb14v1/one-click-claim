@@ -85,3 +85,13 @@ export const fetchExchangeRates = async (): Promise<any> => {
     throw error;
   }
 };
+
+export const fetchActivities = async () => {
+    try {
+        const response = await apiClient.get('/activities');
+        return response.data.activities;
+    } catch (error) {
+        console.error("Error fetching activities", error);
+        return []; 
+    }
+};

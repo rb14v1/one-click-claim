@@ -1,9 +1,10 @@
 // src/hooks/useUploadState.ts
-import { useState } from 'react';
+import { useState, createElement } from 'react';
 import type { ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { uploadReceipts } from '../api/client';
+import { LargeFileToast } from '../components/LargeFileToast';
 
 export type FileStatus = 'pending' | 'processing' | 'success' | 'error';
 
@@ -67,13 +68,17 @@ export const useUploadState = () => {
                 return;
             }
 
-            // Size validation logic
-            const sizeValidFiles = formatValidFiles.filter(f => f.size <= MAX_FILE_SIZE);
-            if (sizeValidFiles.length < formatValidFiles.length) {
-                toast.error('Please upload files less than 120kb');
+            // UI Enhancement: Notify instead of blocking!
+            const oversizedFiles = formatValidFiles.filter(f => f.size > MAX_FILE_SIZE);
+            if (oversizedFiles.length > 0) {
+                toast.custom((t) => createElement(LargeFileToast, { t }), { 
+                    duration: 5000, 
+                    position: 'top-center' 
+                });
             }
 
-            addFiles(filterDuplicates(sizeValidFiles));
+            // Accept ALL valid formats, regardless of size, because backend handles it now
+            addFiles(filterDuplicates(formatValidFiles));
         }
     };
 
@@ -82,13 +87,17 @@ export const useUploadState = () => {
             const selectedFiles = Array.from(e.target.files);
             const formatValidFiles = selectedFiles.filter(isValidFile);
             
-            // Size validation logic
-            const sizeValidFiles = formatValidFiles.filter(f => f.size <= MAX_FILE_SIZE);
-            if (sizeValidFiles.length < formatValidFiles.length) {
-                toast.error('Please upload files less than 120kb');
+            // UI Enhancement: Notify instead of blocking! 🗜️
+            const oversizedFiles = formatValidFiles.filter(f => f.size > MAX_FILE_SIZE);
+            if (oversizedFiles.length > 0) {
+                toast.custom((t) => createElement(LargeFileToast, { t }), { 
+                    duration: 5000, 
+                    position: 'top-center' 
+                });
             }
 
-            addFiles(filterDuplicates(sizeValidFiles));
+            // Accept ALL valid formats, regardless of size, because backend handles it now
+            addFiles(filterDuplicates(formatValidFiles));
             e.target.value = '';
         }
     };

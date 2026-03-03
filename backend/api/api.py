@@ -7,11 +7,11 @@ from math import ceil
 import uuid
 from itertools import groupby
 from .services import process_receipt_pipeline, generate_sas_url
-from .schemas import ClaimSubmissionSchema, GroupedReceiptsResponse, KPISchema, GraphPoint, CategoryStat
+from .schemas import ACTIVITIES, ClaimSubmissionSchema, GroupedReceiptsResponse, KPISchema, GraphPoint, CategoryStat, UserStat, PaginatedCategoryStatResponse
 from django.db.models import Count, Sum, DecimalField, Q
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, Coalesce
 from .models import ClaimSubmission, ExpenseItem, User
-from .kantata_sync import sync_group_to_kantata, check_single_import_status, get_active_exchange_rates
+from .kantata_sync import sync_group_to_kantata, check_single_import_status, get_active_exchange_rates, fetch_all_activity_names
 from authentication.kantata_auth import get_kantata_headers
 from django.core.paginator import Paginator
 from django.utils import timezone
@@ -34,8 +34,15 @@ def get_date_limit(range_str):
     elif range_str == "all":
         return None
     return None
- 
-api = NinjaAPI()
+
+@api.get("/activities")
+def get_activities_list(request):
+    user_email = getattr(settings, "KANTATA_CURRENT_USER_EMAIL", None) 
+    dynamic_projects = fetch_all_activity_names(user_email)
+    
+    # Combine static schema ACTIVITIES with dynamic ones (remove duplicates just in case)
+    combined_activities = list(set(ACTIVITIES + dynamic_projects))
+    return {"activities": sorted(combined_activities)}
  
 @api.post("/process-receipts", response=GroupedReceiptsResponse)
 def process_receipts(request, files: List[UploadedFile] = File(...)):
@@ -48,6 +55,11 @@ def process_receipts(request, files: List[UploadedFile] = File(...)):
     # Fallback to schema currencies if Kantata fails
     dynamic_currencies = list(exchange_rates.keys()) if exchange_rates else None
     
+    user_email = getattr(settings, "KANTATA_CURRENT_USER_EMAIL", None)
+    # print(user_email)
+    dynamic_projects = fetch_all_activity_names(user_email)
+    # print(dynamic_projects)
+    combined_activities = list(set(ACTIVITIES + dynamic_projects))
     # SETUP DATES FOR VALIDATION
     today = timezone.now().date()
     one_year_ago = today - timedelta(days=365)
@@ -64,7 +76,7 @@ def process_receipts(request, files: List[UploadedFile] = File(...)):
             unique_filename = f"{file.name}_{uuid.uuid4().hex[:8]}"
        
         # Run pipeline
-        pipeline_results = process_receipt_pipeline(file.read(), unique_filename, dynamic_currencies)
+        pipeline_results = process_receipt_pipeline(file.read(), unique_filename, dynamic_currencies, combined_activities)
         
         # Check if the result is an error or valid receipts
         if pipeline_results and "error" in pipeline_results[0]:
@@ -411,7 +423,7 @@ def get_analytics_breakdown(request, type: str = "category", range: str = "all")
        
     return results
  
-@api.get("/analytics/top-users", response=List[dict])
+@api.get("/analytics/top-users", response=List[UserStat])
 def get_top_users(request, range: str = "all"):
     """
     Returns Top Users by number of submissions in the selected range.
@@ -437,7 +449,7 @@ def get_top_users(request, range: str = "all"):
         for u in users
     ]
  
-@api.get("/analytics/top-categories-detailed", response=dict)
+@api.get("/analytics/top-categories-detailed", response=PaginatedCategoryStatResponse)
 def get_top_categories_detailed(request, page: int = 1, range: str = "all"):
     """
     Returns paginated category stats for the Detailed Table.

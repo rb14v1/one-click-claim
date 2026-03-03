@@ -2,7 +2,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { submitClaim, fetchExchangeRates } from '../api/client';
+import { submitClaim, fetchExchangeRates, fetchActivities } from '../api/client';
+import { ACTIVITIES as STATIC_ACTIVITIES } from '../constants/expenseConstants';
 import { CAT_GROUP_MILEAGE, CAT_GROUP_TRANSPORT_LOC, CAT_GROUP_ATTENDEES } from '../constants/expenseConstants';
 
 export const useReviewState = () => {
@@ -11,18 +12,26 @@ export const useReviewState = () => {
 
     // --- STATE ---
     const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
-
+    const [dynamicActivitiesList, setDynamicActivitiesList] = useState<string[]>(STATIC_ACTIVITIES);
     // Fetch rates on mount
     useEffect(() => {
-        const getRates = async () => {
+        const loadData = async () => {
             try {
-                const rates = await fetchExchangeRates();
+                // Run both fetches in parallel for speed! ⚡
+                const [rates, acts] = await Promise.all([
+                    fetchExchangeRates(),
+                    fetchActivities()
+                ]);
+
                 setExchangeRates(rates);
+                if (acts && acts.length > 0) {
+                    setDynamicActivitiesList(acts);
+                }
             } catch (err) {
-                console.error("Failed to load rates", err);
+                console.error("Failed to load initial data", err);
             }
         };
-        getRates();
+        loadData();
     }, []);
     const [receipts, setReceipts] = useState<any[]>([]);
     const [rejectedItems, setRejectedItems] = useState<any[]>([]);
@@ -145,16 +154,16 @@ export const useReviewState = () => {
     // --- DYNAMIC EXCHANGE RATE MATH ---
     const targetCurrency = 'EUR'; // DEFAULT SET TO EUR
     const dynamicCurrencies = Object.keys(exchangeRates).length > 0 ? Object.keys(exchangeRates) : ['EUR', 'USD', 'GBP', 'INR'];
-    
+
     const selectedCurrency = currentReceipt?.data?.currency || 'EUR';
-    
+
     const selectedFactor = exchangeRates[selectedCurrency] || 1;
     const targetFactor = exchangeRates[targetCurrency] || 1; // FALLBACK FACTOR IS NOW 1
     const calcExchangeRate = selectedFactor ? (targetFactor / selectedFactor) : 1;
-    
+
     const incurredAmount = parseFloat(currentReceipt?.data?.total_amount) || 0;
     const reimbAmount = (incurredAmount * calcExchangeRate).toFixed(2);
-    
+
     const handleInputChange = (field: string, value: any) => {
         setReceipts(prev => prev.map(r => r.id === selectedId ? { ...r, data: { ...r.data, [field]: value } } : r));
     };
@@ -278,7 +287,7 @@ export const useReviewState = () => {
         currentReceipt, groupedReceipts, activityNames, currentActivityName, currentActivityList, currentIndexInActivity,
         totalReceipts, validatedCount, pendingCount, failedCount, totalAmount, isAllValidated, isAbsoluteLast,
         isMileageGroup, isTransportGroup, isAttendeeGroup, showFinancials, showLocationInputs,
-        dynamicCurrencies, calcExchangeRate, reimbAmount, selectedCurrency, targetCurrency,
+        dynamicCurrencies, calcExchangeRate, reimbAmount, selectedCurrency, targetCurrency, dynamicActivitiesList,
         setSelectedId, setReportName, setPreviewOpen, setFailedModalOpen, handleInputChange, toggleActivityGroup, handleValidateAndNext, handlePreview, handleSubmit
     };
 };

@@ -6,13 +6,25 @@ import uuid
 import traceback
 import time
 from urllib.parse import urlparse
+import urllib.parse
 from django.conf import settings
+from django.core.cache import cache
 from authentication.kantata_auth import get_kantata_headers
 from .services import download_blob_bytes
 
 logger = logging.getLogger(__name__)
 
 CURRENT_USER_EMAIL = getattr(settings, "KANTATA_CURRENT_USER_EMAIL", None)
+
+BASE_ACTIVITY_SOQL = """
+    SELECT 
+        Id, 
+        KimbleOne__Resource__r.Name,
+        KimbleOne__ResourcedActivity__r.Name,
+        KimbleOne__ResourcedActivity__r.KimbleOne__DeliveryElement__r.Name
+    FROM KimbleOne__ActivityAssignment__c 
+    WHERE KimbleOne__Resource__r.KimbleOne__User__r.FederationIdentifier = '{user_email}'
+"""
 
 def query_salesforce(instance_url, query, headers):
     """Executes SOQL query against Salesforce REST API."""
@@ -33,44 +45,11 @@ def query_salesforce(instance_url, query, headers):
             print(f"Salesforce Error Body: {e.response.text}")
         return []
 
-def poll_import_status(instance_url, headers, interface_id, max_retries=10, delay=2):
+def check_single_import_status(instance_url, headers, interface_id):
     """
     Polls the Kimble Interface Request object to see the final result of the import.
     Returns the Status and the Notes (Original Message).
     """
-    # Safe cleanup of ID just in case
-    clean_id = interface_id.strip('"')
-    
-    query = f"""
-        Select id, name, KimbleOne__ErrorMessage__c, KimbleOne__ObjectId__c, KimbleOne__Status__r.name, KimbleOne__TransformedData__c from KimbleOne__InterfaceRunLine__c where KimbleOne__InterfaceRun__c ='{clean_id}'
-    """
-    
-    print(f"Polling status for Run ID: {clean_id}...")
-    
-    for attempt in range(max_retries):
-        records = query_salesforce(instance_url, query, headers)
-        
-        if records:
-            record = records[0]
-            # Map the fields from the specific query provided
-            status_node = record.get('KimbleOne__Status__r')
-            status = status_node.get('Name') if status_node else "Unknown"
-            
-            error_message = record.get('KimbleOne__ErrorMessage__c')
-            
-            # If it's done processing (Errored, Completed, etc)
-            if status in ['Completed', 'Error', 'Failed', 'Partially Completed', 'Errored']:
-                return {"status": status, "message": error_message}
-            
-            # If still New/Ready/Processing, wait and retry
-            print(f"   ... Status: {status} (Attempt {attempt + 1}/{max_retries})")
-        
-        time.sleep(delay)
-        
-    return {"status": "Timeout", "message": "Polling timed out before completion."}
-
-def check_single_import_status(instance_url, headers, interface_id):
-    """Hits Kantata EXACTLY ONCE to check the current status."""
     if not instance_url:
         instance_url = headers.pop("Salesforce-Instance-Url", "")
     else:
@@ -105,30 +84,64 @@ def check_single_import_status(instance_url, headers, interface_id):
     print(f"Polled {clean_id} | Line item not created yet. Waiting...")
     return {"status": "Pending", "message": None}
 
+def fetch_all_activity_names(user_email: str):
+    """
+    Queries Salesforce for all dynamic projects/activities assigned to the user.
+    """
+    headers = get_kantata_headers()
+    instance_url = headers.pop("Salesforce-Instance-Url", getattr(settings, 'KANTATA_INSTANCE_URL', ''))
+    
+    if not instance_url:
+        return []
 
-def get_assignment_details(instance_url, headers, activity_name_input, expense_date=None):
-    # 1. Clean inputs to remove invisible whitespace
+    query = BASE_ACTIVITY_SOQL.format(user_email=user_email)
+    
+    url = f"{instance_url}/services/data/v60.0/query/?q={urllib.parse.quote(query.strip())}"
+
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            records = data.get("records", [])
+            
+            activities = []
+            for rec in records:
+                # Digging into the JSON structure you provided to get the Name
+                resourced_activity = rec.get("KimbleOne__ResourcedActivity__r", {})
+                if resourced_activity and "Name" in resourced_activity:
+                    activities.append(resourced_activity["Name"])
+            
+            return activities
+        else:
+            print(f"Salesforce query failed: {response.text}")
+            return []
+    except Exception as e:
+        print(f"Error fetching dynamic activities: {e}")
+        return []
+
+def fetch_specific_activity_assignment(instance_url, headers, activity_name_input, expense_date=None):
+    
+    # Clean inputs to remove invisible whitespace
     clean_activity = activity_name_input.strip()
     safe_activity = clean_activity.replace("'", "\\'")
-    
-    # Ensure email is loaded and clean
     user_email = str(CURRENT_USER_EMAIL).strip()
 
-    # 3. Construct the query
-    soql = f"""
-                SELECT 
-            Id, 
-            KimbleOne__Resource__r.Name,
-            KimbleOne__ResourcedActivity__r.Name,
-            KimbleOne__ResourcedActivity__r.KimbleOne__DeliveryElement__r.Name
-        FROM KimbleOne__ActivityAssignment__c 
-        WHERE KimbleOne__Resource__r.KimbleOne__User__r.FederationIdentifier = '{user_email}'
+    cache_key = f"specific_activity_{user_email}_{safe_activity}"
+    # Replace spaces with underscores to avoid memcached CacheKeyWarning
+    cache_key = cache_key.replace(" ", "_") 
+
+    cached_assignment = cache.get(cache_key)
+    
+    if cached_assignment:
+        return cached_assignment
+
+    # Construct the query
+    soql = BASE_ACTIVITY_SOQL.format(user_email=user_email) + f"""
         AND (
             KimbleOne__ResourcedActivity__r.Name LIKE '%{safe_activity}%' 
             OR 
             KimbleOne__ResourcedActivity__r.KimbleOne__DeliveryElement__r.Name LIKE '%{safe_activity}%'
         )
-        
     """
 
     records = query_salesforce(instance_url, soql, headers)
@@ -153,17 +166,30 @@ def get_assignment_details(instance_url, headers, activity_name_input, expense_d
         else:
             project_name = activity_node.get('Name')
         
-        return {
+        assignment_data = {
             "resource_name": getattr(settings, 'KANTATA_RESOURCE_NAME'),
             "project_name": project_name
         }
+        
+        # Save to cache for 300 seconds (5 minutes)
+        cache.set(cache_key, assignment_data, 300)
+        
+        return assignment_data
     except Exception as e:
         print(f"Data Parsing Error: {e}")
         traceback.print_exc()
         return None
     
 def get_active_exchange_rates():
-    """Fetches dynamic currencies and their conversion factors from Salesforce."""
+    """
+    Fetches dynamic currencies and their conversion factors from Salesforce.
+    Cached for 1 hour for performance. 
+    """
+    # 1. Check cache first
+    cached_rates = cache.get("kantata_exchange_rates")
+    if cached_rates:
+        return cached_rates
+    
     try:
         headers = get_kantata_headers()
         instance_url = headers.pop("Salesforce-Instance-Url", getattr(settings, 'KANTATA_INSTANCE_URL', ''))
@@ -175,7 +201,10 @@ def get_active_exchange_rates():
         if records:
             for r in records:
                 rates[r.get('CurrencyIsoCode')] = r.get('KimbleOne__ConversionFactor__c')
-        return rates
+        # 2. Save to cache for 3600 seconds (1 hour)
+        cache.set("kantata_exchange_rates", rates, 3600)
+        return rates        
+        
     except Exception as e:
         print(f"Kantata Auth or Fetch failed for exchange rates: {e}")
         # Return empty dict so the LLM falls back to schemas.CURRENCIES without crashing
@@ -202,7 +231,7 @@ def sync_group_to_kantata(group_data):
             expenses = group_data.get('expenses', [])
 
         # 3. Get Kantata Assignment
-        assignment_meta = get_assignment_details(instance_url, headers, activity_name)
+        assignment_meta = fetch_specific_activity_assignment(instance_url, headers, activity_name)
         
         if not assignment_meta:
             return {
@@ -282,6 +311,7 @@ def sync_group_to_kantata(group_data):
 
         try:
             response = requests.post(endpoint, json=final_payload, headers=headers)
+            print(response)
             
             if response.status_code == 200:
                 clean_id = response.text.replace('"', '').strip()

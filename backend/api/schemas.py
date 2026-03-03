@@ -176,5 +176,9 @@ class UserStat(Schema):
 class DetailedCategoryStat(Schema):
     category: str
     total_amount: float
-    receipt_count: int    
+    receipt_count: int   
+
+class PaginatedCategoryStatResponse(Schema):
+    items: List[DetailedCategoryStat]
+    total_pages: int     
  

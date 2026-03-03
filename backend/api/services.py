@@ -7,6 +7,9 @@ from azure.core.credentials import AzureKeyCredential
 from openai import AzureOpenAI
 from django.conf import settings
 from datetime import datetime, timedelta
+import io
+from PIL import Image
+import fitz
 from .schemas import (
     ACTIVITIES, TAX_RATES, CURRENCIES,
     CAT_GROUP_MILEAGE, CAT_GROUP_ATTENDEES,
@@ -88,10 +91,9 @@ def extract_text_from_receipt(sas_url: str) -> str:
     poller = doc_client.begin_analyze_document_from_url("prebuilt-read", sas_url)
     return poller.result().content
  
-def analyze_with_llm(ocr_text: str, valid_currencies: list = CURRENCIES):
+def analyze_with_llm(ocr_text: str, valid_currencies: list = CURRENCIES, valid_activities: list = ACTIVITIES):
     # Constructing the logic map to feed the AI
     # This tells the AI: "If you pick a category from List A, you MUST get these fields."
-   
     logic_map = {
         "GROUP_MILEAGE": {
             "categories": CAT_GROUP_MILEAGE,
@@ -124,7 +126,7 @@ def analyze_with_llm(ocr_text: str, valid_currencies: list = CURRENCIES):
     - If valid, return: {{ "is_receipt": true, "receipts": [...] }}
     
     **GLOBAL LISTS:**
-    - Activities: {json.dumps(ACTIVITIES)}
+    - Activities: {json.dumps(valid_activities)}
     - Currencies: {json.dumps(valid_currencies)}
     - Tax Rates: {json.dumps(TAX_RATES)}
  
@@ -174,35 +176,106 @@ def analyze_with_llm(ocr_text: str, valid_currencies: list = CURRENCIES):
     return { "is_valid": data.get("is_receipt", False),
             "receipts": data.get("receipts", [])
             }
+
+def compress_to_target_size(file_bytes: bytes, filename: str, target_kb: int = 120) -> tuple[bytes, str]:
+    """
+    Dynamically squishes images or PDFs down to the target KB limit.
+    PDFs are rasterized into JPEGs.
+    Returns: (compressed_bytes, updated_filename)
+    """
+    target_bytes = target_kb * 1024
+    
+    # 1. Handle PDFs (Rasterize to Image)
+    if filename.lower().endswith(".pdf"):
+        print(f"   [Squish] PDF detected. Converting to image...")
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc.load_page(0)  # We only need the first page for a receipt
+        # Render at 2x resolution initially so OCR doesn't fail on tiny text
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) 
+        img_bytes = pix.tobytes("png")
+        doc.close()
+        
+        # Load the rendered PDF page into Pillow
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        # Change extension to .jpg since PDFs are gone now
+        filename = filename.rsplit('.', 1)[0] + ".jpg"
+        
+    # 2. Handle standard Images (JPG, PNG, etc.)
+    else:
+        img = Image.open(io.BytesIO(file_bytes))
+        # Strip alpha channels (PNG transparency) because JPEGs don't support it
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+    # 3. The Squish Loop (Iterative Compression)
+    quality = 85
+    resize_factor = 1.0
+    
+    # Initial save to test byte size
+    out_io = io.BytesIO()
+    img.save(out_io, format="JPEG", quality=quality)
+    current_bytes = out_io.getvalue()
+    
+    loop_count = 0
+    while len(current_bytes) > target_bytes:
+        loop_count += 1
+        
+        # Phase 1: Drop quality (down to a floor of 20 to avoid total pixelation)
+        if quality > 20:
+            quality -= 10
+        # Phase 2: If quality is already low, start shrinking the physical dimensions
+        else:
+            resize_factor *= 0.85
+            new_size = (int(img.width * resize_factor), int(img.height * resize_factor))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Re-save and test weight
+        out_io = io.BytesIO()
+        img.save(out_io, format="JPEG", quality=quality)
+        current_bytes = out_io.getvalue()
+        
+    if loop_count > 0:
+        print(f"   [Squish] Done in {loop_count} loops. Final size: {len(current_bytes) / 1024:.2f} KB")
+        
+    return current_bytes, filename
  
-def process_receipt_pipeline(file_data, filename: str, valid_currencies: list = CURRENCIES):
+def process_receipt_pipeline(file_data, filename: str, valid_currencies: list = CURRENCIES, valid_activities: list = ACTIVITIES):
     try:
+        
+        print(f"Checking size and compressing {filename} if needed...")
+        compressed_data, final_filename = compress_to_target_size(file_data, filename)
+        
         # 1. OCR directly from memory (No Blob yet!)
-        print(f"Extracting text from memory for {filename}...")
-        raw_text = extract_text_from_bytes(file_data)
+        print(f"Extracting text from memory for {final_filename}...")
+        raw_text = extract_text_from_bytes(compressed_data)
         
         # 2. LLM Check
         print(f"Validating & Mapping data for {filename}...")
-        analysis_result = analyze_with_llm(raw_text, valid_currencies)
+        analysis_result = analyze_with_llm(raw_text, valid_currencies, valid_activities)
         
         # GATEKEEPER: If invalid, STOP here.
         if not analysis_result["is_valid"]:
             print(f"Skipping {filename}: Not a valid receipt.")
             return [{"error": "Invalid file: Not a recognized receipt", "filename": filename}]
-
+        
+        # # THESE TWO LINES JUST FOR DEBUGGING / QUALITY CHECK 
+        # with open(f"debug_{final_filename}", "wb") as f:
+        #     f.write(compressed_data)
+            
         # 3. IT IS VALID! Now we persist to Blob Storage.
-        print(f"Valid receipt detected. Uploading {filename}...")
-        upload_file_to_blob(file_data, filename)
+        # Notice we upload the compressed_data and final_filename (which might be changed from .pdf to .jpg)
+        print(f"Valid receipt detected. Uploading {final_filename}...")
+        upload_file_to_blob(compressed_data, final_filename)
         
         receipts_list = analysis_result["receipts"]
        
         # Attach the filename to every receipt
         for receipt in receipts_list:
-            receipt['blob_name'] = filename
+            receipt['blob_name'] = final_filename
        
         return receipts_list 
  
     except Exception as e:
-        print(f"Error processing {filename}: {str(e)}")
-        return [{"error": str(e), "filename": filename}]
+        print(f"Error processing {final_filename}: {str(e)}")
+        return [{"error": str(e), "filename": final_filename}]
  

@@ -21,7 +21,7 @@ import { FilePreviewModal } from '../components/FileViewer';
 import { useReviewState } from '../hooks/useReviewState';
 import { BRAND_COLORS } from "../constants/colors";
 
-import { ACTIVITIES, EXPENSE_CATEGORIES, TAX_RATES } from '../constants/expenseConstants';
+import { EXPENSE_CATEGORIES, TAX_RATES } from '../constants/expenseConstants';
 
 const tealTheme = createTheme({
     palette: {
@@ -65,7 +65,7 @@ export const ReviewPage = () => {
         currentReceipt, groupedReceipts, activityNames, currentActivityName, currentActivityList, currentIndexInActivity,
         totalReceipts, validatedCount, pendingCount, failedCount, totalAmount, isAllValidated, isAbsoluteLast,
         isMileageGroup, isAttendeeGroup, showFinancials, showLocationInputs,
-        dynamicCurrencies, calcExchangeRate, reimbAmount, selectedCurrency, targetCurrency,
+        dynamicCurrencies, calcExchangeRate, reimbAmount, selectedCurrency, targetCurrency, dynamicActivitiesList,
         setSelectedId, setPreviewOpen, setFailedModalOpen, handleInputChange, toggleActivityGroup, handleValidateAndNext, handlePreview, handleSubmit
     } = useReviewState();
 
@@ -287,7 +287,7 @@ export const ReviewPage = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                                         <div className="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-6">
                                             <TextField select label="Activity" value={currentReceipt.data.activity || ''} onChange={(e) => handleInputChange('activity', e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} className={getFieldClass(currentReceipt.data.activity)}>
-                                                {ACTIVITIES.map((act) => <MenuItem key={act} value={act}>{act}</MenuItem>)}
+                                                {dynamicActivitiesList.map((act) => <MenuItem key={act} value={act}>{act}</MenuItem>)}
                                             </TextField>
                                             <TextField select label="Expense Category" value={currentReceipt.data.category || ''} onChange={(e) => handleInputChange('category', e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} InputProps={{ startAdornment: <InputAdornment position="start"><Category fontSize="small" className="text-gray-400" /></InputAdornment> }} SelectProps={{ MenuProps: { PaperProps: { className: '!max-h-[300px]' } } }} className={getFieldClass(currentReceipt.data.category)}>
                                                 {EXPENSE_CATEGORIES.map((cat) => <MenuItem key={cat} value={cat} className="!text-xs">{cat}</MenuItem>)}
