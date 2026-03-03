@@ -1,19 +1,19 @@
 import { Dialog, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material';
-import { Close, Visibility, ReceiptLongOutlined } from '@mui/icons-material';
+import { Close, ReceiptLongOutlined } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-
+ 
 interface FileRendererProps {
   url: string | null;
   fileName: string;
 }
-
+ 
 interface FilePreviewModalProps {
   open: boolean;
   onClose: () => void;
   url: string | null;
   fileName: string;
 }
-
+ 
 // --- 1. The Core Renderer (Logic for PDF vs Image) ---
 export const FileRenderer = ({ url, fileName }: FileRendererProps) => {
   if (!url) {
@@ -24,13 +24,13 @@ export const FileRenderer = ({ url, fileName }: FileRendererProps) => {
       </div>
     );
   }
-
+ 
   // Determine file type
   const isPdf =
     fileName.toLowerCase().endsWith('.pdf') ||
     url.toLowerCase().includes('application/pdf') ||
     url.toLowerCase().includes('.pdf');
-
+ 
   if (isPdf) {
     return (
       <iframe
@@ -40,7 +40,7 @@ export const FileRenderer = ({ url, fileName }: FileRendererProps) => {
       />
     );
   }
-
+ 
   // Fallback to Image
   return (
     <img
@@ -54,13 +54,9 @@ export const FileRenderer = ({ url, fileName }: FileRendererProps) => {
     />
   );
 };
-
-// --- 2. The Modal Wrapper (Used in ReviewPage) ---
+ 
+// --- 2. The Modal Wrapper ---
 export const FilePreviewModal = ({ open, onClose, url, fileName }: FilePreviewModalProps) => {
-  const handleOpenNewTab = () => {
-    if (url) window.open(url, '_blank');
-  };
-
   return (
     <Dialog
       open={open}
@@ -76,17 +72,13 @@ export const FilePreviewModal = ({ open, onClose, url, fileName }: FilePreviewMo
           </Typography>
         </div>
         <div className="flex gap-2 shrink-0">
-          {url && (
-            <IconButton onClick={handleOpenNewTab} size="small" title="Open in new tab">
-              <Visibility fontSize="small" />
-            </IconButton>
-          )}
+          {/* Eye icon/Open in new tab button removed from here */}
           <IconButton onClick={onClose} size="small">
             <Close />
           </IconButton>
         </div>
       </DialogTitle>
-
+ 
       <DialogContent className="p-0 bg-gray-100 flex justify-center items-center h-full overflow-hidden relative">
         <div className="w-full h-full p-4 flex items-center justify-center">
           <FileRenderer url={url} fileName={fileName} />
@@ -95,3 +87,4 @@ export const FilePreviewModal = ({ open, onClose, url, fileName }: FilePreviewMo
     </Dialog>
   );
 };
+ 

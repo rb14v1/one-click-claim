@@ -1,3 +1,4 @@
+// src/constants/colors.ts
 export const BRAND_COLORS = {
   teal: "#57a080",
   primary_teal:"#21b0be",
@@ -6,6 +7,12 @@ export const BRAND_COLORS = {
   green: "#33b665",
   red: "#ef4444",
   amber: "#f59e0b",
+};
+
+export const UI_COLORS = {
+  slate50: "#f8fafc",
+  slate100: "#f1f5f9",
+  slate500: "#64748b",
 };
 
 export const CHART_COLOR_ARRAY = [

@@ -16,9 +16,29 @@ import {
 } from "recharts";
 import toast, { Toaster } from "react-hot-toast";
 import { MainLayout } from "../layout/MainLayout";
-import { CHART_COLOR_ARRAY, BRAND_COLORS } from "../constants/colors";
+import { CHART_COLOR_ARRAY, BRAND_COLORS, UI_COLORS } from "../constants/colors";
 import { StatWidget, ChartCard } from "../components/AnalyticsPrimitives";
 import { useUserAnalytics } from "../hooks/useUserAnalytics";
+
+// Custom component to split long X-Axis labels into two lines
+const CustomXAxisTick = ({ x, y, payload }: any) => {
+  if (!payload || !payload.value) return null;
+
+  // Split the label into words and divide into two lines
+  const words = payload.value.split(" ");
+  const mid = Math.ceil(words.length / 2);
+  const line1 = words.slice(0, mid).join(" ");
+  const line2 = words.slice(mid).join(" ");
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={16} textAnchor="middle" fill={UI_COLORS.slate500} fontSize={10}>
+        <tspan textAnchor="middle" x="0">{line1}</tspan>
+        {line2 && <tspan textAnchor="middle" x="0" dy="14">{line2}</tspan>}
+      </text>
+    </g>
+  );
+};
 
 export const UserAnalytics = () => {
   const navigate = useNavigate();
@@ -50,7 +70,7 @@ export const UserAnalytics = () => {
   return (
     <MainLayout>
       <Toaster position="top-right" />
-      <div className="bg-[#f8fafc] w-full min-h-screen p-6 flex flex-col gap-6">
+      <div className="bg-slate-50 w-full min-h-screen p-6 flex flex-col gap-6">
 
         {/* HEADER */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-wrap justify-between items-center gap-4 shadow-sm">
@@ -99,38 +119,39 @@ export const UserAnalytics = () => {
             loading={loading}
             title="Total Spent"
             value={`€${(stats.totalAmount || 0).toLocaleString()}`}
-            bgColor="bg-[#DBEAFE]"
-            borderColor="border-[#93C5FD]"
+            bgColor="bg-blue-100"
+            borderColor="border-blue-300"
             textColor="text-blue-800"
           />
           <StatWidget
             loading={loading}
             title="Receipts Processed"
             value={stats.totalReceipts || 0}
-            bgColor="bg-[#DCFCE7]"
-            borderColor="border-[#86EFAC]"
+            bgColor="bg-green-100"
+            borderColor="border-green-300"
             textColor="text-green-800"
           />
           <StatWidget
             loading={loading}
             title="Failed / Rejected"
             value={stats.failedReceipts || 0}
-            bgColor="bg-[#FEE2E2]"
-            borderColor="border-[#FCA5A5]"
+            bgColor="bg-red-100"
+            borderColor="border-red-300"
             textColor="text-red-800"
           />
         </div>
 
-        {/* CHARTS GRID */}
+        {/* CHARTS STACKED VERTICALLY */}
         {!loading && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 pb-6">
+          <div className="flex flex-col gap-6 pb-6">
 
             {/* 1. Trend Chart */}
             <div className="h-[400px]">
               <ChartCard title={getChartTitle()} icon={Timeline} iconColor="text-orange-500">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={trendData || []}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    {/* Replaced hardcoded stroke with UI_COLORS */}
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={UI_COLORS.slate100} />
                     <XAxis dataKey="label" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis fontSize={10} tickLine={false} axisLine={false} />
                     <Tooltip contentStyle={{ borderRadius: "12px", border: "none", fontSize: "12px" }} />
@@ -145,10 +166,17 @@ export const UserAnalytics = () => {
               <ChartCard title="Claims by Category" icon={BarChartIcon} iconColor="text-teal-500">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={volumeData && volumeData.length > 0 ? volumeData : []}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} interval={0} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={UI_COLORS.slate100} />
+                    <XAxis
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      interval={0}
+                      height={50}
+                      tick={<CustomXAxisTick />}
+                    />
                     <YAxis fontSize={10} tickLine={false} axisLine={false} />
-                    <Tooltip cursor={{ fill: "#f8fafc" }} />
+                    <Tooltip cursor={{ fill: UI_COLORS.slate50 }} />
                     <Bar dataKey="value" fill={BRAND_COLORS.teal} radius={[4, 4, 0, 0]} barSize={35} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -167,7 +195,6 @@ export const UserAnalytics = () => {
                           fill={CHART_COLOR_ARRAY[i % CHART_COLOR_ARRAY.length]}
                         />
                       ))}
-
                     </Pie>
                     <Tooltip contentStyle={{ borderRadius: "12px", border: "none", fontSize: "12px" }} />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
